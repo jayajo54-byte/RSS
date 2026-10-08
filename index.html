@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>출동 기록 입력</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 32px auto; padding: 0 16px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+  select, input, button { padding: 8px; font-size: 16px; }
+  button { background: #2563eb; color: #fff; border: 0; border-radius: 4px; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border-bottom: 1px solid #ddd; padding: 8px; text-align: left; }
+  #msg { color: #c00; }
+</style>
+</head>
+<body>
+  <h1>출동 기록 입력</h1>
+
+  <form id="f">
+    <select id="center">
+      <option>흥해</option><option>청하</option><option>덕산</option>
+      <option>두호</option><option>장량</option><option>기계</option>
+    </select>
+    <select id="type">
+      <option>화재</option><option>구조</option><option>구급</option>
+    </select>
+    <input id="arrival" type="number" step="0.1" min="0.1" max="59" placeholder="도착시간(분)" required>
+    <button type="submit">저장</button>
+  </form>
+  <p id="msg"></p>
+
+  <h2>유형별 평균</h2>
+  <table><thead><tr><th>유형</th><th>건수</th><th>평균(분)</th></tr></thead><tbody id="summary"></tbody></table>
+
+  <h2>최근 기록</h2>
+  <table><thead><tr><th>센터</th><th>유형</th><th>도착(분)</th><th>입력시각</th></tr></thead><tbody id="rows"></tbody></table>
+
+<script>
+  // ▼ Supabase 대시보드 → Project Settings → API(또는 Data API)에서 복사해서 바꿔넣기
+  const SUPABASE_URL = "https://여기에프로젝트ID.supabase.co";
+  const SUPABASE_KEY = "여기에_anon_또는_publishable_키";
+  // ▲ anon/publishable 키는 공개돼도 되는 키. service_role(secret) 키는 절대 넣지 말 것
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const msg = document.getElementById("msg");
+
+  async function load() {
+    const { data, error } = await db
+      .from("dispatch")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) { msg.textContent = "불러오기 실패: " + error.message; return; }
+
+    document.getElementById("rows").innerHTML = data.slice(0, 20).map(r => `
+      <tr><td>${r.center}</td><td>${r.type}</td><td>${r.arrival_min}</td>
+      <td>${new Date(r.created_at).toLocaleString("ko-KR")}</td></tr>`).join("");
+
+    // 유형별 집계 (1주차 파이썬 groupby를 브라우저에서 하는 것)
+    const g = {};
+    data.forEach(r => {
+      g[r.type] ??= { n: 0, sum: 0 };
+      g[r.type].n++; g[r.type].sum += Number(r.arrival_min);
+    });
+    document.getElementById("summary").innerHTML = Object.entries(g).map(([t, v]) =>
+      `<tr><td>${t}</td><td>${v.n}</td><td>${(v.sum / v.n).toFixed(2)}</td></tr>`).join("");
+  }
+
+  document.getElementById("f").addEventListener("submit", async e => {
+    e.preventDefault();
+    msg.textContent = "";
+    const { error } = await db.from("dispatch").insert({
+      center: document.getElementById("center").value,
+      type: document.getElementById("type").value,
+      arrival_min: Number(document.getElementById("arrival").value),
+    });
+    if (error) { msg.textContent = "저장 실패: " + error.message; return; }
+    document.getElementById("arrival").value = "";
+    load();
+  });
+
+  load();
+</script>
+</body>
+</html>
